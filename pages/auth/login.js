@@ -29,7 +29,9 @@ export default function Login() {
       }
     } catch (err) {
       console.error('Login error:', err);
-      const msg = err.code === 'auth/invalid-credential'
+      const msg = err.message === 'Firebase not configured'
+        ? 'Firebase er ikke konfigurert. Sjekk miljøvariabler.'
+        : err.code === 'auth/invalid-credential'
         ? 'Feil e-post eller passord'
         : err.code === 'auth/email-not-allowed'
         ? 'Denne e-postadressen er ikke tillatt for registrering'
