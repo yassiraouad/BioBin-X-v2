@@ -1,10 +1,17 @@
-import { db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, addDoc, serverTimestamp } from './config';
+import { db, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, addDoc, serverTimestamp, app } from './config';
+
+function ensureFirebase() {
+  if (!app || !db) {
+    throw new Error('Firebase not configured');
+  }
+}
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
 export async function logWaste({ userId, weight, imageUrl, classId, aiClassification }) {
+  ensureFirebase();
   const usersRef = collection(db, 'users');
   const classesRef = collection(db, 'classes');
   const logsRef = collection(db, 'waste_logs');

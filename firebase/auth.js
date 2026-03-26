@@ -1,9 +1,12 @@
-import { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where } from './config';
+import { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, app } from './config';
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL;
 const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
 
 export async function registerUser({ name, email, password, role, classCode }) {
+  if (!app || !auth || !db) {
+    throw new Error('Firebase not configured');
+  }
   if (email === ADMIN_EMAIL) {
     throw new Error('auth/email-not-allowed');
   }
@@ -53,6 +56,9 @@ export async function registerUser({ name, email, password, role, classCode }) {
 }
 
 export async function loginUser({ email, password }) {
+  if (!app || !auth || !db) {
+    throw new Error('Firebase not configured');
+  }
   if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
     try {
       let userCredential;
@@ -102,10 +108,16 @@ export async function loginUser({ email, password }) {
 }
 
 export async function logoutUser() {
+  if (!app || !auth) {
+    throw new Error('Firebase not configured');
+  }
   await signOut(auth);
 }
 
 export async function getUserData(uid) {
+  if (!app || !auth || !db) {
+    throw new Error('Firebase not configured');
+  }
   const userDoc = await getDoc(doc(db, 'users', uid));
   if (userDoc.exists()) {
     return { uid: userDoc.id, ...userDoc.data() };
@@ -114,6 +126,10 @@ export async function getUserData(uid) {
 }
 
 export function subscribeToAuth(callback) {
+  if (!app || !auth) {
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }
 
