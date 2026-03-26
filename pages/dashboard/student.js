@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuth } from '../../hooks/useAuth';
 import Layout from '../../components/layout/Layout';
-import { getUserLogs } from '../../firebase/db';
+import { getUserLogs, getWeeklyWaste } from '../../firebase/db';
 import { getRank, calculateEnergy, calculateCO2Saved } from '../../utils/calculator';
 import { Camera, Trophy, Zap, Wind, Leaf, ArrowRight, Star, TrendingUp } from 'lucide-react';
 import { ALL_BADGES } from '../../firebase/db';
@@ -27,33 +27,48 @@ export default function StudentDashboard() {
   const router = useRouter();
   const [logs, setLogs] = useState([]);
   const [chartData, setChartData] = useState([]);
+  const [weeklyWaste, setWeeklyWaste] = useState(0);
 
   useEffect(() => {
-    if (!loading && (!user || userData?.role !== 'student')) {
+    if (!loading && !user) {
       router.push('/auth/login');
     }
   }, [user, userData, loading]);
 
   useEffect(() => {
+    if (!loading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, loading]);
+
+  useEffect(() => {
     if (user) {
       getUserLogs(user.uid).then(userLogs => {
-        setLogs(userLogs);
-        // Build last 7 days chart data
+        setLogs(userLogs || []);
         const days = ['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'];
         const weekData = days.map((day, i) => {
           const date = new Date();
           date.setDate(date.getDate() - date.getDay() + i + 1);
-          const dayLogs = userLogs.filter(l => {
+          const dayLogs = (userLogs || []).filter(l => {
             if (!l.timestamp) return false;
             const d = l.timestamp.toDate ? l.timestamp.toDate() : new Date(l.timestamp);
             return d.toDateString() === date.toDateString();
           });
-          return { day, weight: parseFloat(dayLogs.reduce((s, l) => s + l.weight, 0).toFixed(2)) };
+          return { day, weight: parseFloat(dayLogs.reduce((s, l) => s + (l.weight || 0), 0).toFixed(2)) };
         });
         setChartData(weekData);
+      }).catch(err => {
+        console.error('Error loading logs:', err);
+        setLogs([]);
       });
     }
   }, [user]);
+
+  useEffect(() => {
+    if (user && userData) {
+      getWeeklyWaste(user.uid, userData.classId).then(setWeeklyWaste).catch(() => setWeeklyWaste(0));
+    }
+  }, [user, userData]);
 
   if (loading || !userData) {
     return (
@@ -63,11 +78,11 @@ export default function StudentDashboard() {
     );
   }
 
-  const totalWaste = userData.totalWaste || 0;
+  const totalWaste = userData?.totalWaste || 0;
   const energy = calculateEnergy(totalWaste);
   const co2 = calculateCO2Saved(totalWaste);
-  const rank = getRank(userData.points || 0);
-  const earnedBadges = userData.badges || [];
+  const rank = getRank(userData?.points || 0);
+  const earnedBadges = userData?.badges || [];
 
   return (
     <Layout>

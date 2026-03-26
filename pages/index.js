@@ -209,6 +209,7 @@ export default function Landing() {
           <div className="flex items-center gap-6">
             <Link href="/about" className="text-slate-500 hover:text-white text-sm font-body transition-colors">Om oss</Link>
             <Link href="/auth/login" className="text-slate-500 hover:text-white text-sm font-body transition-colors">Logg inn</Link>
+            <Link href="/auth/login" className="text-slate-500 hover:text-red-400 text-sm font-body transition-colors">Admin</Link>
           </div>
         </div>
       </footer>

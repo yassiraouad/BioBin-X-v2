@@ -4,8 +4,9 @@ import { useAuth } from '../hooks/useAuth';
 import Layout from '../components/layout/Layout';
 import { logWaste } from '../firebase/db';
 import { useRouter } from 'next/router';
-import { Camera, RotateCcw, Check, Scale, Zap, Wind, Leaf, X, Upload } from 'lucide-react';
+import { Camera, RotateCcw, Check, Scale, Zap, Wind, Leaf, X, Upload, Brain, AlertTriangle, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { classifyWasteFromDataUrl, loadModel } from '../utils/wasteClassifier';
 
 export default function ScanPage() {
   const { user, userData, refreshUserData } = useAuth();
@@ -19,6 +20,9 @@ export default function ScanPage() {
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null);
   const [facingMode, setFacingMode] = useState('environment');
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [modelLoaded, setModelLoaded] = useState(false);
 
   const startCamera = useCallback(async () => {
     try {
@@ -44,24 +48,38 @@ export default function ScanPage() {
 
   useEffect(() => {
     startCamera();
+    loadModel().then(() => setModelLoaded(true)).catch(console.error);
     return () => stopCamera();
   }, [startCamera]);
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const video = videoRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
-    setCapturedImage(canvas.toDataURL('image/jpeg', 0.8));
+    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    setCapturedImage(imageData);
     stopCamera();
+
+    setAnalyzing(true);
+    try {
+      const analysis = await classifyWasteFromDataUrl(imageData);
+      setAiAnalysis(analysis);
+    } catch (err) {
+      console.error('AI analysis failed:', err);
+      setAiAnalysis({ isOrganic: true, confidence: 0.5, label: 'Analysis unavailable' });
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const retake = () => {
     setCapturedImage(null);
     setResult(null);
     setWeight('');
+    setAiAnalysis(null);
     startCamera();
   };
 
@@ -69,13 +87,19 @@ export default function ScanPage() {
     if (!weight || parseFloat(weight) <= 0) return toast.error('Skriv inn vekt (kg)');
     if (!user) return;
 
+    if (aiAnalysis && !aiAnalysis.isOrganic) {
+      toast.error('Dette ser ut til å være ikke-organisk avfall. BioBin godtar kun matavfall!');
+      return;
+    }
+
     setSaving(true);
     try {
       const data = await logWaste({
-        userId: user.uid,
+        userId: user.id,
         weight: parseFloat(weight),
-        imageUrl: null, // In production: upload capturedImage to Firebase Storage
+        imageUrl: null,
         classId: userData?.classId || null,
+        aiClassification: aiAnalysis,
       });
       setResult(data);
       await refreshUserData();
@@ -129,7 +153,22 @@ export default function ScanPage() {
     <Layout>
       <div className="p-6 max-w-md mx-auto">
         <div className="mb-6">
-          <h1 className="font-display font-700 text-white text-2xl mb-1">Skann matavfall 📸</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="font-display font-700 text-white text-2xl mb-1">Skann matavfall 📸</h1>
+            <div className="flex items-center gap-2">
+              {modelLoaded ? (
+                <span className="flex items-center gap-1 text-xs text-bio-400 bg-bio-500/10 px-2 py-1 rounded-full">
+                  <Brain size={12} />
+                  AI klar
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-xs text-slate-500 bg-slate-800/50 px-2 py-1 rounded-full">
+                  <Brain size={12} />
+                  Laster AI...
+                </span>
+              )}
+            </div>
+          </div>
           <p className="text-slate-400 font-body text-sm">Ta bilde av maten og skriv inn vekt</p>
         </div>
 
@@ -158,6 +197,18 @@ export default function ScanPage() {
           ) : (
             <>
               <img src={capturedImage} alt="Captured" className="w-full h-full object-cover" />
+              {aiAnalysis && !aiAnalysis.isOrganic && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 animate-fade-in">
+                  <div className="w-24 h-24 rounded-full bg-red-500/80 flex items-center justify-center animate-pulse">
+                    <X size={48} className="text-white" />
+                  </div>
+                </div>
+              )}
+              {aiAnalysis && aiAnalysis.isOrganic && (
+                <div className="absolute top-3 left-3 w-10 h-10 rounded-full bg-bio-500/80 flex items-center justify-center animate-fade-in">
+                  <Check size={16} className="text-white" />
+                </div>
+              )}
               <button onClick={retake} className="absolute top-3 right-3 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-all">
                 <X size={16} />
               </button>
@@ -168,13 +219,73 @@ export default function ScanPage() {
 
         {/* Capture button */}
         {!capturedImage && (
-          <div className="flex justify-center mb-5">
+          <div className="flex flex-col items-center mb-5">
             <button
               onClick={capturePhoto}
-              className="w-16 h-16 rounded-full bg-gradient-to-br from-bio-500 to-bio-700 flex items-center justify-center bio-glow hover:scale-105 transition-transform active:scale-95"
+              disabled={!modelLoaded}
+              className={`w-16 h-16 rounded-full bg-gradient-to-br from-bio-500 to-bio-700 flex items-center justify-center bio-glow hover:scale-105 transition-transform active:scale-95 ${!modelLoaded ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <Camera size={26} className="text-white" />
             </button>
+            {!modelLoaded && (
+              <p className="text-slate-500 text-xs mt-2">Vent på AI-modell...</p>
+            )}
+          </div>
+        )}
+
+        {/* AI Analysis Result */}
+        {capturedImage && (
+          <div className="mb-5 animate-slide-up">
+            {analyzing ? (
+              <div className="p-4 rounded-xl bg-bio-500/10 border border-bio-500/20 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-bio-500/20 flex items-center justify-center">
+                  <Brain size={20} className="text-bio-400 animate-pulse" />
+                </div>
+                <div>
+                  <p className="text-white font-body font-500">AI analyserer bildet...</p>
+                  <p className="text-slate-400 text-xs">Vennligst vent</p>
+                </div>
+              </div>
+            ) : aiAnalysis ? (
+              aiAnalysis.isOrganic ? (
+                <div className="p-4 rounded-xl bg-bio-500/10 border border-bio-500/20">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-full bg-bio-500/20 flex items-center justify-center">
+                      <Sparkles size={20} className="text-bio-400" />
+                    </div>
+                    <div>
+                      <p className="text-bio-300 font-body font-600">Organisk matavfall oppdaget!</p>
+                      <p className="text-slate-400 text-xs">{aiAnalysis.label} ({(aiAnalysis.confidence * 100).toFixed(0)}% sikkerhet)</p>
+                    </div>
+                  </div>
+                  {aiAnalysis.allPredictions && aiAnalysis.allPredictions.length > 1 && (
+                    <div className="mt-2 pt-2 border-t border-bio-500/10">
+                      <p className="text-slate-500 text-xs mb-1">Andre forslag:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {aiAnalysis.allPredictions.slice(1).map((pred, i) => (
+                          <span key={i} className="text-xs px-2 py-0.5 rounded bg-slate-700/50 text-slate-400">
+                            {pred.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                      <AlertTriangle size={20} className="text-red-400" />
+                    </div>
+                    <div>
+                      <p className="text-red-300 font-body font-600">Ikke organisk avfall!</p>
+                      <p className="text-slate-400 text-xs">{aiAnalysis.label} ({(aiAnalysis.confidence * 100).toFixed(0)}% sikkerhet)</p>
+                    </div>
+                  </div>
+                  <p className="text-slate-400 text-sm mt-2">BioBin godtar kun matavfall. Vennligst ta bilde av organiske matrester.</p>
+                </div>
+              )
+            ) : null}
           </div>
         )}
 
@@ -206,8 +317,8 @@ export default function ScanPage() {
 
             <button
               onClick={handleSave}
-              disabled={saving || !weight}
-              className="btn-primary w-full flex items-center justify-center gap-2 py-4 text-base"
+              disabled={saving || !weight || (aiAnalysis && !aiAnalysis.isOrganic)}
+              className={`btn-primary w-full flex items-center justify-center gap-2 py-4 text-base ${aiAnalysis && !aiAnalysis.isOrganic ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {saving ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

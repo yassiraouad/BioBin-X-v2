@@ -18,14 +18,23 @@ export default function Signup() {
     e.preventDefault();
     if (!form.name || !form.email || !form.password) return toast.error('Fyll inn alle felt');
     if (form.password.length < 6) return toast.error('Passordet må være minst 6 tegn');
+    if (form.role === 'student' && !form.classCode) return toast.error('Skriv inn klassekoden');
     setLoading(true);
     try {
       await registerUser(form);
       toast.success(`Konto opprettet! Velkommen, ${form.name}! 🌱`);
-      router.push(form.role === 'teacher' ? '/dashboard/teacher' : '/dashboard/student');
+      if (form.role === 'admin') {
+        router.push('/dashboard/admin');
+      } else if (form.role === 'teacher') {
+        router.push('/dashboard/teacher');
+      } else {
+        router.push('/dashboard/student');
+      }
     } catch (err) {
       const msg = err.code === 'auth/email-already-in-use'
         ? 'E-postadressen er allerede i bruk'
+        : err.code === 'auth/email-not-allowed'
+        ? 'Denne e-postadressen er ikke tillatt'
         : 'Registrering feilet. Prøv igjen.';
       toast.error(msg);
     } finally {
@@ -115,7 +124,7 @@ export default function Signup() {
 
             {form.role === 'student' && (
               <div>
-                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Klassekode (valgfritt)</label>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Klassekode <span className="text-red-400">*</span></label>
                 <div className="relative">
                   <Hash size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                   <input
@@ -125,9 +134,9 @@ export default function Signup() {
                     placeholder="F.eks. XK9A2B"
                     className="bio-input pl-11 uppercase"
                     maxLength={8}
+                    required
                   />
                 </div>
-                <p className="text-slate-500 text-xs mt-1 font-body">Få klassekoden av læreren din</p>
               </div>
             )}
 

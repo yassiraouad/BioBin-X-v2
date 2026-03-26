@@ -1,87 +1,120 @@
-// firebase/auth.js - Local storage auth
-import { getUsers, saveUsers, getClasses, setCurrentUser, getCurrentUser } from './config';
+import { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where } from './config';
 
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
-}
-
-function hashPassword(password) {
-  return btoa(password + 'salt_biobin');
-}
+const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
 
 export async function registerUser({ name, email, password, role, classCode }) {
-  const users = getUsers();
-  
-  // Check if email already exists
-  const existingUser = Object.values(users).find(u => u.email === email);
-  if (existingUser) {
-    throw new Error('Email already in use');
+  if (email === ADMIN_EMAIL) {
+    throw new Error('auth/email-not-allowed');
   }
 
-  let classId = null;
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
 
-  // Find class by code if student
-  if (role === 'student' && classCode) {
-    const classes = getClasses();
-    const foundClass = Object.values(classes).find(c => c.code === classCode.toUpperCase());
-    if (foundClass) {
-      classId = foundClass.id;
+    let classId = null;
+    if (role === 'student' && classCode) {
+      const classesRef = collection(db, 'classes');
+      const q = query(classesRef, where('code', '==', classCode.toUpperCase()));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        classId = snapshot.docs[0].id;
+      }
     }
-  }
 
-  const userId = generateId();
-  const newUser = {
-    id: userId,
-    name,
-    email,
-    password: hashPassword(password),
-    role,
-    classId,
-    points: 0,
-    totalWaste: 0,
-    badges: [],
-    createdAt: new Date().toISOString(),
-  };
+    const userData = {
+      name,
+      email,
+      role,
+      classId,
+      points: 0,
+      totalWaste: 0,
+      badges: [],
+      createdAt: new Date().toISOString(),
+    };
 
-  users[userId] = newUser;
-  saveUsers(users);
+    await setDoc(doc(db, 'users', user.uid), userData);
 
-  // Update class student count
-  if (classId) {
-    const classes = getClasses();
-    if (classes[classId]) {
-      classes[classId].studentCount = (classes[classId].studentCount || 0) + 1;
-      saveClasses(classes);
+    if (classId) {
+      const classRef = doc(db, 'classes', classId);
+      const classSnap = await getDoc(classRef);
+      if (classSnap.exists()) {
+        await updateDoc(classRef, {
+          studentCount: (classSnap.data().studentCount || 0) + 1
+        });
+      }
     }
+
+    return { user: { uid: user.uid, ...userData }, classId };
+  } catch (error) {
+    console.error('Registration error:', error);
+    throw error;
   }
-
-  const { password: _, ...userWithoutPassword } = newUser;
-  setCurrentUser(userWithoutPassword);
-
-  return { user: userWithoutPassword, classId };
 }
 
 export async function loginUser({ email, password }) {
-  const users = getUsers();
-  const hashedPassword = hashPassword(password);
-  
-  const user = Object.values(users).find(u => u.email === email && u.password === hashedPassword);
-  
-  if (!user) {
-    throw new Error('Invalid email or password');
+  if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+    try {
+      let userCredential;
+      try {
+        userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      } catch (createError) {
+        if (createError.code === 'auth/email-already-in-use') {
+          userCredential = await signInWithEmailAndPassword(auth, email, password);
+        } else if (createError.code === 'auth/invalid-credential' || createError.code === 'auth/wrong-password') {
+          userCredential = await signInWithEmailAndPassword(auth, email, password);
+        } else {
+          throw createError;
+        }
+      }
+      const user = userCredential.user;
+      const adminUserData = {
+        uid: user.uid,
+        email: ADMIN_EMAIL,
+        name: 'Administrator',
+        role: 'admin',
+        classId: null,
+        points: 0,
+        totalWaste: 0,
+        badges: [],
+        createdAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'users', user.uid), adminUserData, { merge: true });
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        return { uid: userDoc.id, ...userDoc.data() };
+      }
+      return adminUserData;
+    } catch (error) {
+      console.error('Admin login error:', error);
+      throw error;
+    }
   }
 
-  const { password: _, ...userWithoutPassword } = user;
-  setCurrentUser(userWithoutPassword);
+  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  const user = userCredential.user;
+  const userDoc = await getDoc(doc(db, 'users', user.uid));
   
-  return userWithoutPassword;
+  if (userDoc.exists()) {
+    return { uid: userDoc.id, ...userDoc.data() };
+  }
+  return { uid: user.uid, email: user.email };
 }
 
 export async function logoutUser() {
-  setCurrentUser(null);
+  await signOut(auth);
 }
 
 export async function getUserData(uid) {
-  const users = getUsers();
-  return users[uid] || null;
+  const userDoc = await getDoc(doc(db, 'users', uid));
+  if (userDoc.exists()) {
+    return { uid: userDoc.id, ...userDoc.data() };
+  }
+  return null;
 }
+
+export function subscribeToAuth(callback) {
+  return onAuthStateChanged(auth, callback);
+}
+
+export { ADMIN_EMAIL };

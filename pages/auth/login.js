@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { loginUser, getUserData } from '../../firebase/auth';
+import { loginUser } from '../../firebase/auth';
 import { Leaf, Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -19,16 +19,24 @@ export default function Login() {
     setLoading(true);
     try {
       const user = await loginUser({ email, password });
-      const data = await getUserData(user.uid);
-      toast.success(`Velkommen tilbake, ${data?.name}! 🌱`);
-      if (data?.role === 'teacher') {
+      toast.success(`Velkommen tilbake, ${user.name}! 🌱`);
+      if (user.role === 'admin') {
+        router.push('/dashboard/admin');
+      } else if (user.role === 'teacher') {
         router.push('/dashboard/teacher');
       } else {
         router.push('/dashboard/student');
       }
     } catch (err) {
+      console.error('Login error:', err);
       const msg = err.code === 'auth/invalid-credential'
         ? 'Feil e-post eller passord'
+        : err.code === 'auth/email-not-allowed'
+        ? 'Denne e-postadressen er ikke tillatt for registrering'
+        : err.code === 'auth/user-not-found'
+        ? 'Bruker finnes ikke'
+        : err.code === 'auth/email-already-in-use'
+        ? 'E-post allerede i bruk'
         : 'Innlogging feilet. Prøv igjen.';
       toast.error(msg);
     } finally {

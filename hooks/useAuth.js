@@ -1,7 +1,5 @@
-// hooks/useAuth.js
 import { createContext, useContext, useEffect, useState } from 'react';
-import { getCurrentUser, setCurrentUser } from '../firebase/config';
-import { getUserData } from '../firebase/auth';
+import { subscribeToAuth, getUserData } from '../firebase/auth';
 
 const AuthContext = createContext({});
 
@@ -11,22 +9,35 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session in localStorage
-    const storedUser = getCurrentUser();
-    if (storedUser) {
-      setUser(storedUser);
-      setUserData(storedUser);
-    }
-    setLoading(false);
+    const unsubscribe = subscribeToAuth(async (firebaseUser) => {
+      try {
+        if (firebaseUser) {
+          setUser(firebaseUser);
+          const data = await getUserData(firebaseUser.uid);
+          setUserData(data || {});
+        } else {
+          setUser(null);
+          setUserData(null);
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+        setUserData({});
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const refreshUserData = async () => {
-    if (user) {
-      const data = await getUserData(user.id);
-      setUserData(data);
-      if (data) {
-        setCurrentUser(data);
+    try {
+      if (user) {
+        const data = await getUserData(user.uid);
+        setUserData(data || {});
       }
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
     }
   };
 

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import Layout from '../../components/layout/Layout';
-import { getTeacherClasses, createClass, getClassStudents } from '../../firebase/db';
+import { getTeacherClasses, createClass, getClassStudents, getSchoolByCode, getAllSchools, getSchoolGroups } from '../../firebase/db';
 import { useRouter } from 'next/router';
 import { Users, Plus, Copy, Hash, X, ChevronDown, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -15,6 +15,10 @@ export default function ClassesPage() {
   const [classStudents, setClassStudents] = useState({});
   const [showModal, setShowModal] = useState(false);
   const [newName, setNewName] = useState('');
+  const [schools, setSchools] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [selectedSchool, setSelectedSchool] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState('');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -23,7 +27,7 @@ export default function ClassesPage() {
 
   useEffect(() => {
     if (user && userData?.role === 'teacher') {
-      getTeacherClasses(user.uid).then(setClasses);
+      getTeacherClasses(user.uid).then(cls => setClasses(cls || [])).catch(() => setClasses([]));
     }
   }, [user, userData]);
 
@@ -32,21 +36,54 @@ export default function ClassesPage() {
     setExpanded(classId);
     if (!classStudents[classId]) {
       const students = await getClassStudents(classId);
-      setClassStudents(prev => ({ ...prev, [classId]: students }));
+      setClassStudents(prev => ({ ...prev, [classId]: students || [] }));
+    }
+  };
+
+  const handleOpenModal = async () => {
+    try {
+      const allSchools = await getAllSchools();
+      setSchools(allSchools || []);
+      if (allSchools && allSchools.length > 0) {
+        setSelectedSchool(allSchools[0].id);
+        const schoolGroups = await getSchoolGroups(allSchools[0].id);
+        setGroups(schoolGroups || []);
+      }
+      setSelectedGroup('');
+      setShowModal(true);
+    } catch (err) {
+      console.error('Error loading schools:', err);
+      toast.error('Klarte ikke laste skoler');
+    }
+  };
+
+  const handleSchoolChange = async (schoolId) => {
+    setSelectedSchool(schoolId);
+    setSelectedGroup('');
+    try {
+      const schoolGroups = await getSchoolGroups(schoolId);
+      setGroups(schoolGroups || []);
+    } catch (err) {
+      setGroups([]);
     }
   };
 
   const handleCreate = async () => {
     if (!newName.trim()) return toast.error('Skriv inn klassenavn');
+    if (!selectedSchool) return toast.error('Velg en skole');
     setCreating(true);
     try {
-      await createClass({ name: newName, teacherId: user.uid });
-      toast.success('Klasse opprettet!');
+      const result = await createClass({ name: newName, teacherId: user.uid, schoolId: selectedSchool, groupId: selectedGroup || null });
+      console.log('Class created:', result);
+      toast.success(`Klasse opprettet! Kode: ${result.code} 🎉`);
       const cls = await getTeacherClasses(user.uid);
-      setClasses(cls);
+      setClasses(cls || []);
       setShowModal(false);
       setNewName('');
-    } catch { toast.error('Feil ved oppretting'); }
+    } catch (err) {
+      console.error('Error creating class:', err);
+      toast.error('Feil ved oppretting: ' + err.message);
+    }
     finally { setCreating(false); }
   };
 
@@ -64,7 +101,7 @@ export default function ClassesPage() {
             <h1 className="font-display font-700 text-white text-2xl mb-1">Mine klasser</h1>
             <p className="text-slate-400 font-body">{classes.length} klasse{classes.length !== 1 ? 'r' : ''}</p>
           </div>
-          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2 text-sm">
+          <button onClick={handleOpenModal} className="btn-primary flex items-center gap-2 text-sm">
             <Plus size={15} /> Ny klasse
           </button>
         </div>
@@ -73,7 +110,7 @@ export default function ClassesPage() {
           <div className="bio-card p-16 text-center">
             <Users size={48} className="mx-auto text-slate-600 mb-4" />
             <p className="text-slate-400 font-body mb-4">Ingen klasser ennå.</p>
-            <button onClick={() => setShowModal(true)} className="btn-primary mx-auto flex items-center gap-2">
+            <button onClick={handleOpenModal} className="btn-primary mx-auto flex items-center gap-2">
               <Plus size={15} /> Opprett første klasse
             </button>
           </div>
@@ -89,7 +126,11 @@ export default function ClassesPage() {
                     <Users size={18} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-white font-display font-700">{cls.name}</div>
+                    <div className="text-white font-display font-700">
+                      {cls.name}
+                      {cls.schoolName && <span className="text-bio-400 font-400 text-sm ml-1">- {cls.schoolName}</span>}
+                      {cls.groupName && <span className="text-earth-400 font-400 text-sm ml-1"> ({cls.groupName})</span>}
+                    </div>
                     <div className="text-slate-500 text-xs font-body mt-0.5">
                       {(cls.totalWaste || 0).toFixed(1)} kg · {cls.totalPoints || 0} poeng
                     </div>
@@ -149,12 +190,37 @@ export default function ClassesPage() {
                 type="text"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
-                placeholder="F.eks. 9B – Solberg Skole"
+                placeholder="F.eks. 9B"
                 className="bio-input"
                 autoFocus
                 onKeyDown={e => e.key === 'Enter' && handleCreate()}
               />
-              <button onClick={handleCreate} disabled={creating} className="btn-primary w-full flex items-center justify-center gap-2 py-4">
+              <select
+                value={selectedSchool}
+                onChange={e => handleSchoolChange(e.target.value)}
+                className="bio-input"
+              >
+                {schools.length === 0 ? (
+                  <option value="">Ingen skoler tilgjengelig</option>
+                ) : (
+                  schools.map(school => (
+                    <option key={school.id} value={school.id}>{school.name}</option>
+                  ))
+                )}
+              </select>
+              {groups.length > 0 && (
+                <select
+                  value={selectedGroup}
+                  onChange={e => setSelectedGroup(e.target.value)}
+                  className="bio-input"
+                >
+                  <option value="">Ingen gruppe</option>
+                  {groups.map(group => (
+                    <option key={group.id} value={group.id}>{group.name}</option>
+                  ))}
+                </select>
+              )}
+              <button onClick={handleCreate} disabled={creating || !selectedSchool} className="btn-primary w-full flex items-center justify-center gap-2 py-4">
                 {creating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={16} /> Opprett</>}
               </button>
             </div>

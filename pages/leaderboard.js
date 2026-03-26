@@ -1,7 +1,7 @@
 // pages/leaderboard.js
 import { useEffect, useState } from 'react';
 import Layout from '../components/layout/Layout';
-import { getStudentLeaderboard, getClassLeaderboard } from '../firebase/db';
+import { getStudentLeaderboard, getClassLeaderboard, getAllSchools, getSchoolStudentLeaderboard, getSchoolLeaderboard } from '../firebase/db';
 import { useAuth } from '../hooks/useAuth';
 import { Trophy, Users, Crown, Medal, Star } from 'lucide-react';
 
@@ -14,14 +14,37 @@ export default function Leaderboard() {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [schools, setSchools] = useState([]);
+  const [selectedSchool, setSelectedSchool] = useState('all');
 
   useEffect(() => {
-    Promise.all([getStudentLeaderboard(), getClassLeaderboard()]).then(([s, c]) => {
-      setStudents(s);
-      setClasses(c);
-      setLoading(false);
-    });
+    getAllSchools().then(schools => setSchools(schools || [])).catch(() => setSchools([]));
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    if (selectedSchool === 'all') {
+      Promise.all([getStudentLeaderboard(), getClassLeaderboard()]).then(([s, c]) => {
+        setStudents(s || []);
+        setClasses(c || []);
+        setLoading(false);
+      }).catch(() => {
+        setStudents([]);
+        setClasses([]);
+        setLoading(false);
+      });
+    } else {
+      Promise.all([getSchoolStudentLeaderboard(selectedSchool), getSchoolLeaderboard(selectedSchool)]).then(([s, c]) => {
+        setStudents(s || []);
+        setClasses(c || []);
+        setLoading(false);
+      }).catch(() => {
+        setStudents([]);
+        setClasses([]);
+        setLoading(false);
+      });
+    }
+  }, [selectedSchool]);
 
   return (
     <Layout>
@@ -33,6 +56,22 @@ export default function Leaderboard() {
           </h1>
           <p className="text-slate-400 font-body">Hvem er skolens grønneste?</p>
         </div>
+
+        {/* School filter */}
+        {schools.length > 0 && (
+          <div className="mb-6">
+            <select
+              value={selectedSchool}
+              onChange={e => setSelectedSchool(e.target.value)}
+              className="bio-input w-full max-w-xs"
+            >
+              <option value="all">Alle skoler</option>
+              {schools.map(school => (
+                <option key={school.id} value={school.id}>{school.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Tab switcher */}
         <div className="flex gap-2 mb-6 p-1 bg-white/4 rounded-xl w-fit">
@@ -61,12 +100,13 @@ export default function Leaderboard() {
         ) : (
           <div className="space-y-3 animate-fade-in">
             {(tab === 'students' ? students : classes).map((item, i) => {
-              const isMe = tab === 'students' && item.id === user?.uid;
+              const itemId = item.uid || item.id;
+              const isMe = tab === 'students' && itemId === user?.uid;
               const rankClass = i < 3 ? RANK_CLASSES[i] : '';
 
               return (
                 <div
-                  key={item.id}
+                  key={itemId}
                   className={`bio-card p-4 flex items-center gap-4 transition-all ${rankClass} ${isMe ? 'ring-1 ring-bio-500/40' : ''}`}
                 >
                   {/* Rank */}

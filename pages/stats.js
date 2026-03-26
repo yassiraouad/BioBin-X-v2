@@ -31,11 +31,14 @@ export default function Stats() {
   useEffect(() => {
     if (user) {
       getUserLogs(user.uid).then(userLogs => {
-        setLogs(userLogs);
-        setWeeklyData(getWeeklyData(userLogs));
+        setLogs(userLogs || []);
+        setWeeklyData(getWeeklyData(userLogs || []));
+      }).catch(() => {
+        setLogs([]);
+        setWeeklyData([]);
       });
     }
-    getGlobalStats().then(setGlobalStats);
+    getGlobalStats().then(stats => setGlobalStats(stats)).catch(() => setGlobalStats(null));
   }, [user]);
 
   const totalWaste = userData?.totalWaste || 0;
@@ -156,10 +159,10 @@ export default function Stats() {
               <>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                   {[
-                    { label: 'Total avfall', value: `${globalStats.totalWaste.toFixed(0)} kg`, icon: Leaf, color: 'bio' },
-                    { label: 'Energi totalt', value: `${globalStats.totalEnergy.toFixed(0)} kWh`, icon: Zap, color: 'moss' },
-                    { label: 'CO₂ spart', value: `${globalStats.totalCO2.toFixed(0)} kg`, icon: Wind, color: 'earth' },
-                    { label: 'Registreringer', value: globalStats.totalLogs, icon: Globe, color: 'bio' },
+                    { label: 'Total avfall', value: `${(globalStats.totalWaste || 0).toFixed(0)} kg`, icon: Leaf, color: 'bio' },
+                    { label: 'Energi totalt', value: `${(globalStats.totalEnergy || 0).toFixed(0)} kWh`, icon: Zap, color: 'moss' },
+                    { label: 'CO₂ spart', value: `${(globalStats.totalCO2 || 0).toFixed(0)} kg`, icon: Wind, color: 'earth' },
+                    { label: 'Registreringer', value: globalStats.totalLogs || 0, icon: Globe, color: 'bio' },
                   ].map(({ label, value, icon: Icon, color }) => (
                     <div key={label} className="bio-card p-5">
                       <div className={`w-9 h-9 rounded-xl bg-${color}-500/15 flex items-center justify-center mb-3`}>
@@ -175,9 +178,9 @@ export default function Stats() {
                   <h2 className="font-display font-700 text-white text-lg mb-3">CO₂ ekvivalenter</h2>
                   <div className="space-y-4">
                     {[
-                      { label: 'Bilkjøring spart', value: `${(globalStats.totalCO2 * 4).toFixed(0)} km`, icon: '🚗' },
-                      { label: 'Flyreiser spart', value: `${(globalStats.totalCO2 / 90).toFixed(1)} Oslo-London`, icon: '✈️' },
-                      { label: 'Trær plantet eq.', value: `${Math.round(globalStats.totalCO2 / 21)} trær/år`, icon: '🌳' },
+                      { label: 'Bilkjøring spart', value: `${((globalStats.totalCO2 || 0) * 4).toFixed(0)} km`, icon: '🚗' },
+                      { label: 'Flyreiser spart', value: `${((globalStats.totalCO2 || 0) / 90).toFixed(1)} Oslo-London`, icon: '✈️' },
+                      { label: 'Trær plantet eq.', value: `${Math.round((globalStats.totalCO2 || 0) / 21)} trær/år`, icon: '🌳' },
                     ].map(({ label, value, icon }) => (
                       <div key={label} className="flex items-center justify-between p-3 rounded-xl bg-white/3 border border-white/6">
                         <div className="flex items-center gap-3">

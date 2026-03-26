@@ -20,7 +20,7 @@ export default function Quiz() {
     setSelected(idx);
     setAnswered(true);
     const correct = idx === question.correct;
-    if (correct) setScore(s => s + 1);
+    if (correct) setScore(s => s + 10);
     setAnswers(prev => [...prev, { questionId: question.id, selected: idx, correct }]);
   };
 
@@ -92,7 +92,7 @@ export default function Quiz() {
             <div className="text-5xl mb-4">{grade.emoji}</div>
             <h2 className="font-display font-700 text-white text-3xl mb-2">{grade.text}</h2>
             <p className={`font-body text-lg ${grade.color} mb-2`}>
-              Du svarte riktig på {score} av {quizQuestions.length} spørsmål
+              Du fikk {score} poeng ({answers.filter(a => a.correct).length} av {quizQuestions.length} riktige)
             </p>
             <div className="w-full h-3 bg-white/8 rounded-full overflow-hidden my-6">
               <div
@@ -136,7 +136,7 @@ export default function Quiz() {
         <div className="mb-6 animate-fade-in">
           <div className="flex items-center justify-between mb-2">
             <span className="text-slate-400 text-sm font-body">Spørsmål {currentQ + 1} av {quizQuestions.length}</span>
-            <span className="text-bio-400 font-mono text-sm">{score} riktige</span>
+            <span className="text-bio-400 font-mono text-sm">{score} poeng</span>
           </div>
           <div className="w-full h-2 bg-white/8 rounded-full overflow-hidden">
             <div

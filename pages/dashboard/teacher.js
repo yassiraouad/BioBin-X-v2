@@ -4,9 +4,9 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuth } from '../../hooks/useAuth';
 import Layout from '../../components/layout/Layout';
-import { getTeacherClasses, getClassStudents, getClassLogs, createClass } from '../../firebase/db';
+import { getTeacherClasses, getClassStudents, getClassLogs, createClass, setClassWeeklyGoal, getWeeklyWaste, getSchoolByCode, getAllSchools, getSchoolGroups } from '../../firebase/db';
 import { calculateEnergy, calculateCO2Saved } from '../../utils/calculator';
-import { Users, Leaf, Zap, Wind, Plus, Copy, X, BarChart2, Trophy } from 'lucide-react';
+import { Users, Leaf, Zap, Wind, Plus, Copy, X, BarChart2, Trophy, Target, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -19,9 +19,19 @@ export default function TeacherDashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newClassName, setNewClassName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [goalWeight, setGoalWeight] = useState('');
+  const [settingGoal, setSettingGoal] = useState(false);
+  const [classWeeklyWaste, setClassWeeklyWaste] = useState(0);
+  const [schoolCode, setSchoolCode] = useState('');
+  const [schools, setSchools] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [selectedSchool, setSelectedSchool] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [selectedSchoolData, setSelectedSchoolData] = useState(null);
 
   useEffect(() => {
-    if (!loading && (!user || userData?.role !== 'teacher')) {
+    if (!loading && (!user || (userData?.role !== 'teacher' && userData?.role !== 'admin'))) {
       router.push('/auth/login');
     }
   }, [user, userData, loading]);
@@ -29,8 +39,11 @@ export default function TeacherDashboard() {
   useEffect(() => {
     if (user && userData?.role === 'teacher') {
       getTeacherClasses(user.uid).then(cls => {
-        setClasses(cls);
-        if (cls.length > 0) setSelectedClass(cls[0]);
+        setClasses(cls || []);
+        if (cls && cls.length > 0) setSelectedClass(cls[0]);
+      }).catch(err => {
+        console.error('Error loading classes:', err);
+        setClasses([]);
       });
     }
   }, [user, userData]);
@@ -41,26 +54,84 @@ export default function TeacherDashboard() {
         getClassStudents(selectedClass.id),
         getClassLogs(selectedClass.id),
       ]).then(([students, logs]) => {
-        const totalWaste = logs.reduce((s, l) => s + l.weight, 0);
-        setClassStats({ students, logs, totalWaste });
+        const totalWaste = (logs || []).reduce((s, l) => s + (l.weight || 0), 0);
+        setClassStats({ students: students || [], logs: logs || [], totalWaste });
+      }).catch(err => {
+        console.error('Error loading class data:', err);
+        setClassStats({ students: [], logs: [], totalWaste: 0 });
       });
+      getWeeklyWaste(null, selectedClass.id).then(setClassWeeklyWaste).catch(() => setClassWeeklyWaste(0));
+      setGoalWeight(selectedClass.weeklyGoal?.toString() || '');
     }
   }, [selectedClass]);
 
+  const handleOpenCreateModal = async () => {
+    try {
+      const allSchools = await getAllSchools();
+      setSchools(allSchools || []);
+      if (allSchools && allSchools.length > 0) {
+        setSelectedSchool(allSchools[0].id);
+        const schoolGroups = await getSchoolGroups(allSchools[0].id);
+        setGroups(schoolGroups || []);
+      }
+      setSchoolCode('');
+      setSelectedGroup('');
+      setShowCreateModal(true);
+    } catch (err) {
+      console.error('Error loading schools:', err);
+      toast.error('Klarte ikke laste skoler');
+    }
+  };
+
+  const handleSchoolChange = async (schoolId) => {
+    setSelectedSchool(schoolId);
+    setSelectedGroup('');
+    try {
+      const schoolGroups = await getSchoolGroups(schoolId);
+      setGroups(schoolGroups || []);
+    } catch (err) {
+      setGroups([]);
+    }
+  };
+
   const handleCreateClass = async () => {
     if (!newClassName.trim()) return toast.error('Skriv inn klassenavn');
+    if (!selectedSchool) return toast.error('Velg en skole');
     setCreating(true);
     try {
-      const { id, code } = await createClass({ name: newClassName, teacherId: user.uid });
-      toast.success(`Klasse opprettet! Kode: ${code} 🎉`);
+      const result = await createClass({ name: newClassName, teacherId: user.uid, schoolId: selectedSchool, groupId: selectedGroup || null });
+      console.log('Class created:', result);
+      toast.success(`Klasse opprettet! Kode: ${result.code} 🎉`);
       const cls = await getTeacherClasses(user.uid);
-      setClasses(cls);
+      setClasses(cls || []);
       setShowCreateModal(false);
       setNewClassName('');
     } catch (err) {
+      console.error('Error creating class:', err);
       toast.error('Klarte ikke opprette klasse');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleSetGoal = async () => {
+    if (!selectedClass) return;
+    const weight = parseFloat(goalWeight);
+    if (isNaN(weight) || weight <= 0) return toast.error('Skriv inn en gyldig vekt');
+    setSettingGoal(true);
+    try {
+      await setClassWeeklyGoal(selectedClass.id, weight);
+      toast.success('Ukentlig mål satt for klassen! 🎯');
+      setShowGoalModal(false);
+      const cls = await getTeacherClasses(user.uid);
+      setClasses(cls || []);
+      const updated = cls?.find(c => c.id === selectedClass.id);
+      if (updated) setSelectedClass(updated);
+    } catch (err) {
+      console.error('Error setting goal:', err);
+      toast.error('Klarte ikke sette mål');
+    } finally {
+      setSettingGoal(false);
     }
   };
 
@@ -89,7 +160,7 @@ export default function TeacherDashboard() {
             <p className="text-slate-400 font-body">Hei {userData.name}! Oversikt over klassen din.</p>
           </div>
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={handleOpenCreateModal}
             className="btn-primary flex items-center gap-2 text-sm"
           >
             <Plus size={16} />
@@ -112,6 +183,8 @@ export default function TeacherDashboard() {
               >
                 <Users size={14} />
                 {cls.name}
+                {cls.schoolName && <span className="text-bio-400 text-xs">- {cls.schoolName}</span>}
+                {cls.groupName && <span className="text-earth-400 text-xs"> ({cls.groupName})</span>}
                 {cls.code && (
                   <span className="font-mono text-xs bg-white/8 px-2 py-0.5 rounded-md">{cls.code}</span>
                 )}
@@ -125,7 +198,7 @@ export default function TeacherDashboard() {
             <Users size={48} className="mx-auto text-slate-600 mb-4" />
             <h2 className="font-display font-700 text-white text-xl mb-2">Ingen klasser ennå</h2>
             <p className="text-slate-400 font-body mb-6">Opprett din første klasse og del klassekoden med elevene.</p>
-            <button onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center gap-2 mx-auto">
+            <button onClick={handleOpenCreateModal} className="btn-primary flex items-center gap-2 mx-auto">
               <Plus size={16} /> Opprett klasse
             </button>
           </div>
@@ -143,6 +216,62 @@ export default function TeacherDashboard() {
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-bio-500/10 border border-bio-500/20 text-bio-400 text-sm font-body hover:bg-bio-500/15 transition-all"
                 >
                   <Copy size={14} /> Kopier
+                </button>
+              </div>
+            )}
+
+            {/* Weekly Goal Card */}
+            {selectedClass && selectedClass.weeklyGoal && selectedClass.weeklyGoal > 0 && (
+              <div className="bio-card p-6 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-bio-500/15 flex items-center justify-center">
+                      <Target size={20} className="text-bio-400" />
+                    </div>
+                    <div>
+                      <h2 className="font-display font-700 text-white text-lg">Ukentlig klassemål</h2>
+                      <p className="text-slate-400 text-sm font-body">{selectedClass.weeklyGoal} kg denne uken</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowGoalModal(true)}
+                    className="text-bio-400 text-sm font-body hover:text-bio-300 transition-colors"
+                  >
+                    Endre
+                  </button>
+                </div>
+                <div className="relative h-4 bg-white/5 rounded-full overflow-hidden">
+                  <div
+                    className={`absolute left-0 top-0 h-full rounded-full transition-all duration-500 ${
+                      classWeeklyWaste >= selectedClass.weeklyGoal ? 'bg-earth-400' : 'bg-bio-500'
+                    }`}
+                    style={{ width: `${Math.min((classWeeklyWaste / selectedClass.weeklyGoal) * 100, 100)}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-slate-400 text-sm font-body">
+                    {classWeeklyWaste.toFixed(1)} / {selectedClass.weeklyGoal} kg
+                  </span>
+                  {selectedClass.weeklyGoalCompleted ? (
+                    <span className="flex items-center gap-1 text-earth-400 text-sm font-body font-500">
+                      <CheckCircle size={14} /> Mål nådd! +200 poeng til alle
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 text-sm font-body">
+                      {((selectedClass.weeklyGoal - classWeeklyWaste) > 0 ? (selectedClass.weeklyGoal - classWeeklyWaste) : 0).toFixed(1)} kg igjen
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedClass && (!selectedClass.weeklyGoal || selectedClass.weeklyGoal <= 0) && (
+              <div className="bio-card p-6 mb-6 text-center">
+                <Target size={32} className="mx-auto text-slate-600 mb-3" />
+                <h2 className="font-display font-700 text-white text-lg mb-2">Sett et ukentlig klassemål</h2>
+                <p className="text-slate-400 text-sm font-body mb-4">Alle elever får 200 bonuspoeng hvis klassen når målet!</p>
+                <button onClick={() => setShowGoalModal(true)} className="btn-primary">
+                  Sett klassemål
                 </button>
               </div>
             )}
@@ -244,13 +373,83 @@ export default function TeacherDashboard() {
                   type="text"
                   value={newClassName}
                   onChange={e => setNewClassName(e.target.value)}
-                  placeholder="F.eks. 8A – Eberg Ungdomsskole"
+                  placeholder="F.eks. 8A"
                   className="bio-input"
                   autoFocus
                 />
               </div>
-              <button onClick={handleCreateClass} disabled={creating} className="btn-primary w-full flex items-center justify-center gap-2 py-4">
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Skole</label>
+                <select
+                  value={selectedSchool}
+                  onChange={e => handleSchoolChange(e.target.value)}
+                  className="bio-input"
+                >
+                  {schools.length === 0 ? (
+                    <option value="">Ingen skoler tilgjengelig</option>
+                  ) : (
+                    schools.map(school => (
+                      <option key={school.id} value={school.id}>{school.name}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+              {groups.length > 0 && (
+                <div>
+                  <label className="text-slate-300 text-sm font-body font-500 block mb-2">Gruppe (valgfritt)</label>
+                  <select
+                    value={selectedGroup}
+                    onChange={e => setSelectedGroup(e.target.value)}
+                    className="bio-input"
+                  >
+                    <option value="">Ingen gruppe</option>
+                    {groups.map(group => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button onClick={handleCreateClass} disabled={creating || !selectedSchool} className="btn-primary w-full flex items-center justify-center gap-2 py-4">
                 {creating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={16} /> Opprett klasse</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Goal Modal */}
+      {showGoalModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="bio-card p-8 w-full max-w-md animate-slide-up">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display font-700 text-white text-xl">Sett ukentlig klassemål</h2>
+              <button onClick={() => setShowGoalModal(false)} className="text-slate-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-slate-400 text-sm font-body mb-4">
+              Sett et mål for hvor mye matavfall klassen skal registrere denne uken. Hvis alle elever sammen når målet, får hver elev 200 bonuspoeng!
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Klassemål (kg)</label>
+                <input
+                  type="number"
+                  value={goalWeight}
+                  onChange={e => setGoalWeight(e.target.value)}
+                  placeholder="F.eks. 50"
+                  className="bio-input"
+                  min="0"
+                  step="1"
+                  autoFocus
+                />
+              </div>
+              <button onClick={handleSetGoal} disabled={settingGoal} className="btn-primary w-full flex items-center justify-center gap-2 py-4">
+                {settingGoal ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <><Target size={16} /> Sett klassemål</>
+                )}
               </button>
             </div>
           </div>

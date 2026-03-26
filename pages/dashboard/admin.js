@@ -1,0 +1,734 @@
+// pages/dashboard/admin.js
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { useAuth } from '../../hooks/useAuth';
+import Layout from '../../components/layout/Layout';
+import { getAdminStats, deleteUser, deleteClass, deleteWasteLog, updateUser, updateClass, getAllSchools, createSchool, deleteSchool, getAllGroups, createGroup, deleteGroup } from '../../firebase/db';
+import { calculateEnergy, calculateCO2Saved } from '../../utils/calculator';
+import { Shield, Users, GraduationCap, School, Leaf, Trash2, Edit2, X, Check, BarChart2, Plus, Building2, Copy, UsersRound } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+export default function AdminDashboard() {
+  const { user, userData, loading } = useAuth();
+  const router = useRouter();
+  const [stats, setStats] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [editingUser, setEditingUser] = useState(null);
+  const [editingClass, setEditingClass] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [schools, setSchools] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [showSchoolModal, setShowSchoolModal] = useState(false);
+  const [newSchoolName, setNewSchoolName] = useState('');
+  const [creatingSchool, setCreatingSchool] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupSchool, setNewGroupSchool] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
+
+  useEffect(() => {
+    if (!loading && (!user || userData?.role !== 'admin')) {
+      router.push('/auth/login');
+    }
+  }, [user, userData, loading]);
+
+  useEffect(() => {
+    if (user && userData?.role === 'admin') {
+      loadStats();
+    }
+  }, [user, userData]);
+
+  const loadStats = async () => {
+    try {
+      const data = await getAdminStats();
+      setStats(data || { totalUsers: 0, totalStudents: 0, totalTeachers: 0, totalClasses: 0, totalLogs: 0, totalWaste: 0, students: [], teachers: [], classes: [], logs: [] });
+    } catch (err) {
+      console.error('Error loading stats:', err);
+      setStats({ totalUsers: 0, totalStudents: 0, totalTeachers: 0, totalClasses: 0, totalLogs: 0, totalWaste: 0, students: [], teachers: [], classes: [], logs: [] });
+    }
+  };
+
+  const loadSchools = async () => {
+    console.log('Loading schools...');
+    try {
+      const data = await getAllSchools();
+      console.log('Schools loaded:', data);
+      setSchools(data || []);
+    } catch (err) {
+      console.error('Error loading schools:', err);
+      toast.error('Klarte ikke laste skoler');
+    }
+  };
+
+  const loadGroups = async () => {
+    console.log('Loading groups...');
+    try {
+      const [allGroups, allSchools] = await Promise.all([getAllGroups(), getAllSchools()]);
+      console.log('Groups loaded:', allGroups);
+      console.log('Schools loaded:', allSchools);
+      setGroups(allGroups || []);
+      setSchools(allSchools || []);
+    } catch (err) {
+      console.error('Error loading groups:', err);
+      toast.error('Klarte ikke laste grupper');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'skoler') {
+      loadSchools();
+    }
+    if (activeTab === 'grupper') {
+      loadGroups();
+    }
+  }, [activeTab]);
+
+  const handleCreateSchool = async () => {
+    if (!newSchoolName.trim()) return toast.error('Skriv inn skolenavn');
+    setCreatingSchool(true);
+    try {
+      await createSchool({ name: newSchoolName });
+      toast.success('Skole opprettet!');
+      setNewSchoolName('');
+      setShowSchoolModal(false);
+      loadSchools();
+    } catch (err) {
+      toast.error('Klarte ikke opprette skole');
+    } finally {
+      setCreatingSchool(false);
+    }
+  };
+
+  const handleDeleteSchool = async (schoolId) => {
+    if (!confirm('Er du sikker på at du vil slette denne skolen? Alle tilknyttede klasser vil miste sin skoletilknytning.')) return;
+    try {
+      await deleteSchool(schoolId);
+      toast.success('Skole slettet');
+      loadSchools();
+    } catch (err) {
+      toast.error('Klarte ikke slette skole');
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return toast.error('Skriv inn gruppenavn');
+    if (!newGroupSchool) return toast.error('Velg en skole');
+    setCreatingGroup(true);
+    try {
+      await createGroup({ name: newGroupName, schoolId: newGroupSchool });
+      toast.success('Gruppe opprettet!');
+      setNewGroupName('');
+      setNewGroupSchool('');
+      setShowGroupModal(false);
+      loadGroups();
+    } catch (err) {
+      toast.error('Klarte ikke opprette gruppe');
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    if (!confirm('Er du sikker på at du vil slette denne gruppen?')) return;
+    try {
+      await deleteGroup(groupId);
+      toast.success('Gruppe slettet');
+      loadGroups();
+    } catch (err) {
+      toast.error('Klarte ikke slette gruppe');
+    }
+  };
+
+  const handleDeleteUser = async (uid) => {
+    if (!confirm('Er du sikker på at du vil slette denne brukeren?')) return;
+    try {
+      await deleteUser(uid);
+      toast.success('Bruker slettet');
+      loadStats();
+    } catch (err) {
+      toast.error('Klarte ikke slette bruker');
+    }
+  };
+
+  const handleDeleteClass = async (classId) => {
+    if (!confirm('Er du sikker på at du vil slette denne klassen?')) return;
+    try {
+      await deleteClass(classId);
+      toast.success('Klasse slettet');
+      loadStats();
+    } catch (err) {
+      toast.error('Klarte ikke slette klasse');
+    }
+  };
+
+  const handleDeleteLog = async (logId) => {
+    if (!confirm('Er du sikker på at du vil slette denne loggen?')) return;
+    try {
+      await deleteWasteLog(logId);
+      toast.success('Logg slettet');
+      loadStats();
+    } catch (err) {
+      toast.error('Klarte ikke slette logg');
+    }
+  };
+
+  const handleSaveUser = async () => {
+    try {
+      await updateUser(editingUser.uid, editForm);
+      toast.success('Bruker oppdatert');
+      setEditingUser(null);
+      loadStats();
+    } catch (err) {
+      toast.error('Klarte ikke oppdatere bruker');
+    }
+  };
+
+  const handleSaveClass = async () => {
+    try {
+      await updateClass(editingClass.id, editForm);
+      toast.success('Klasse oppdatert');
+      setEditingClass(null);
+      loadStats();
+    } catch (err) {
+      toast.error('Klarte ikke oppdatere klasse');
+    }
+  };
+
+  if (loading || !userData) {
+    return <div className="min-h-screen bg-dark-900 flex items-center justify-center"><div className="w-10 h-10 border-2 border-bio-500/30 border-t-bio-500 rounded-full animate-spin" /></div>;
+  }
+
+  const tabs = [
+    { id: 'overview', label: 'Oversikt' },
+    { id: 'skoler', label: 'Skoler' },
+    { id: 'grupper', label: 'Grupper' },
+    { id: 'users', label: 'Brukere' },
+    { id: 'classes', label: 'Klasser' },
+    { id: 'logs', label: 'Logger' },
+  ];
+
+  const topStudents = stats?.students
+    ?.sort((a, b) => (b.points || 0) - (a.points || 0))
+    .slice(0, 5)
+    .map(s => ({ name: s.name?.split(' ')[0] || 'Ukjent', poeng: s.points || 0 }));
+
+  return (
+    <Layout>
+      <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8 animate-slide-up">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/15 flex items-center justify-center">
+              <Shield size={20} className="text-red-400" />
+            </div>
+            <div>
+              <h1 className="font-display font-700 text-white text-2xl lg:text-3xl mb-1">
+                Admin Dashboard 🛡️
+              </h1>
+              <p className="text-slate-400 font-body text-sm">Full kontroll over BioBin X</p>
+            </div>
+          </div>
+          <button onClick={loadStats} className="btn-primary text-sm">
+            Oppdater
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mb-6 border-b border-white/10 pb-4">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 rounded-xl text-sm font-body font-500 transition-all ${
+                activeTab === tab.id
+                  ? 'bg-bio-500/15 text-bio-400 border border-bio-500/30'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        {activeTab === 'overview' && stats && (
+          <div className="space-y-6">
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: 'Totalt brukere', value: stats.totalUsers, icon: Users, color: 'bio' },
+                { label: 'Elever', value: stats.totalStudents, icon: GraduationCap, color: 'moss' },
+                { label: 'Lærere', value: stats.totalTeachers, icon: School, color: 'earth' },
+                { label: 'Klasser', value: stats.totalClasses, icon: BarChart2, color: 'bio' },
+              ].map(({ label, value, icon: Icon, color }) => (
+                <div key={label} className="bio-card p-5">
+                  <div className={`w-9 h-9 rounded-xl bg-${color}-500/15 flex items-center justify-center mb-3`}>
+                    <Icon size={18} className={`text-${color}-400`} />
+                  </div>
+                  <div className="font-display font-700 text-white text-2xl">{value || 0}</div>
+                  <div className="text-slate-500 text-xs font-body mt-1">{label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                { label: 'Matavfall', value: (stats.totalWaste || 0).toFixed(1), icon: Leaf, color: 'bio', unit: 'kg' },
+                { label: 'Energi', value: calculateEnergy(stats.totalWaste || 0).toFixed(1), color: 'moss', unit: 'kWh' },
+                { label: 'CO₂ spart', value: calculateCO2Saved(stats.totalWaste || 0).toFixed(1), color: 'earth', unit: 'kg' },
+              ].map(({ label, value, color, unit }) => (
+                <div key={label} className="bio-card p-5">
+                  <div className="text-slate-500 text-xs font-body mb-1">{label}</div>
+                  <div className="font-display font-700 text-white text-xl">{value} <span className="text-sm text-slate-500">{unit}</span></div>
+                </div>
+              ))}
+            </div>
+
+            {/* Top Students Chart */}
+            <div className="bio-card p-6">
+              <h2 className="font-display font-700 text-white text-lg mb-5">Topp 5 elever</h2>
+              {topStudents?.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={topStudents}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11, fontFamily: 'DM Sans' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 11, fontFamily: 'DM Sans' }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{ background: '#1a2d1f', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '12px', fontFamily: 'DM Sans' }}
+                      labelStyle={{ color: '#94a3b8' }}
+                      itemStyle={{ color: '#4ade80' }}
+                    />
+                    <Bar dataKey="poeng" fill="#22c55e" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-slate-500 text-center py-8 font-body">Ingen elever ennå</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'grupper' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display font-700 text-white text-xl">Grupper</h2>
+              <button onClick={() => setShowGroupModal(true)} className="btn-primary flex items-center gap-2 text-sm">
+                <Plus size={16} /> Ny gruppe
+              </button>
+            </div>
+            <div className="bio-card overflow-hidden">
+              {groups.length === 0 ? (
+                <div className="p-8 text-center">
+                  <UsersRound size={40} className="mx-auto text-slate-600 mb-3" />
+                  <p className="text-slate-400 font-body">Ingen grupper ennå. Opprett en gruppe for å komme i gang.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {groups.map(group => (
+                    <div key={group.id} className="flex items-center justify-between p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-earth-500/15 flex items-center justify-center">
+                          <UsersRound size={20} className="text-earth-400" />
+                        </div>
+                        <div>
+                          <div className="text-white font-body font-500">{group.name}</div>
+                          <div className="text-slate-500 text-xs font-body">
+                            Skole: <span className="text-earth-400">{schools.find(s => s.id === group.schoolId)?.name || 'Ukjent'}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button onClick={() => handleDeleteGroup(group.id)} className="p-2 text-slate-500 hover:text-red-400 transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'users' && stats && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display font-700 text-white text-xl">Skoler</h2>
+              <button onClick={() => setShowSchoolModal(true)} className="btn-primary flex items-center gap-2 text-sm">
+                <Plus size={16} /> Ny skole
+              </button>
+            </div>
+            <div className="bio-card overflow-hidden">
+              {schools.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Building2 size={40} className="mx-auto text-slate-600 mb-3" />
+                  <p className="text-slate-400 font-body">Ingen skoler ennå. Opprett en skole for å komme i gang.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-white/5">
+                  {schools.map(school => (
+                    <div key={school.id} className="flex items-center justify-between p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-bio-500/15 flex items-center justify-center">
+                          <Building2 size={20} className="text-bio-400" />
+                        </div>
+                        <div>
+                          <div className="text-white font-body font-500">{school.name}</div>
+                          <div className="text-slate-500 text-xs font-body">
+                            Kode: <span className="font-mono text-bio-400">{school.code}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button onClick={() => { navigator.clipboard.writeText(school.code); toast.success('Kode kopiert!'); }} className="p-2 text-slate-500 hover:text-bio-400 transition-colors mr-2">
+                        <Copy size={16} />
+                      </button>
+                      <button onClick={() => handleDeleteSchool(school.id)} className="p-2 text-slate-500 hover:text-red-400 transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'users' && stats && (
+          <div className="bio-card overflow-hidden">
+            <div className="p-4 border-b border-white/5">
+              <h2 className="font-display font-700 text-white">Alle brukere ({stats.totalUsers})</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-white/3">
+                  <tr>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Navn</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">E-post</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Rolle</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Poeng</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Avfall</th>
+                    <th className="text-right text-slate-400 text-xs font-body font-500 px-4 py-3">Handlinger</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.students.concat(stats.teachers).map(user => (
+                    <tr key={user.uid} className="border-t border-white/5 hover:bg-white/3">
+                      <td className="px-4 py-3">
+                        <div className="text-white text-sm font-body">{user.name}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-slate-400 text-sm font-body">{user.email}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-1 rounded-full font-500 ${
+                          user.role === 'admin' ? 'bg-red-500/15 text-red-400' :
+                          user.role === 'teacher' ? 'bg-earth-500/15 text-earth-400' :
+                          'bg-bio-500/15 text-bio-400'
+                        }`}>
+                          {user.role === 'admin' ? 'Admin' : user.role === 'teacher' ? 'Lærer' : 'Elev'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-bio-400 text-sm font-mono">{user.points || 0}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-slate-400 text-sm">{(user.totalWaste || 0).toFixed(1)} kg</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => { setEditingUser(user); setEditForm({ name: user.name, points: user.points, role: user.role }); }}
+                            className="p-2 rounded-lg text-slate-400 hover:text-bio-400 hover:bg-white/5 transition-all"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(user.uid)}
+                            className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/8 transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'classes' && stats && (
+          <div className="bio-card overflow-hidden">
+            <div className="p-4 border-b border-white/5">
+              <h2 className="font-display font-700 text-white">Alle klasser ({stats.totalClasses})</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-white/3">
+                  <tr>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Navn</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Kode</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Elever</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Avfall</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Poeng</th>
+                    <th className="text-right text-slate-400 text-xs font-body font-500 px-4 py-3">Handlinger</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.classes.map(cls => (
+                    <tr key={cls.id} className="border-t border-white/5 hover:bg-white/3">
+                      <td className="px-4 py-3">
+                        <div className="text-white text-sm font-body">{cls.name}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-mono text-bio-400 text-sm">{cls.code}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-slate-400 text-sm">{cls.studentCount || 0}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-slate-400 text-sm">{(cls.totalWaste || 0).toFixed(1)} kg</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-bio-400 text-sm font-mono">{cls.totalPoints || 0}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => { setEditingClass(cls); setEditForm({ name: cls.name, studentCount: cls.studentCount }); }}
+                            className="p-2 rounded-lg text-slate-400 hover:text-bio-400 hover:bg-white/5 transition-all"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClass(cls.id)}
+                            className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/8 transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'logs' && stats && (
+          <div className="bio-card overflow-hidden">
+            <div className="p-4 border-b border-white/5">
+              <h2 className="font-display font-700 text-white">Alle logger ({stats.totalLogs})</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-white/3">
+                  <tr>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Dato</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Bruker</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Vekt</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Poeng</th>
+                    <th className="text-left text-slate-400 text-xs font-body font-500 px-4 py-3">Energi</th>
+                    <th className="text-right text-slate-400 text-xs font-body font-500 px-4 py-3">Handlinger</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.logs.map(log => {
+                    const user = stats.students.find(s => s.uid === log.userId) || stats.teachers.find(t => t.uid === log.userId);
+                    return (
+                      <tr key={log.id} className="border-t border-white/5 hover:bg-white/3">
+                        <td className="px-4 py-3">
+                          <div className="text-slate-400 text-sm font-body">
+                            {log.timestamp ? new Date(log.timestamp).toLocaleDateString('no-NO') : 'Ukjent'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-white text-sm font-body">{user?.name || 'Ukjent'}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-400 text-sm">{log.weight} kg</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-bio-400 text-sm font-mono">+{log.points}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-slate-400 text-sm">{(log.energyKwh || 0).toFixed(2)} kWh</span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDeleteLog(log.id)}
+                            className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/8 transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Edit User Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="bio-card p-8 w-full max-w-md animate-slide-up">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display font-700 text-white text-xl">Rediger bruker</h2>
+              <button onClick={() => setEditingUser(null)} className="text-slate-500 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Navn</label>
+                <input
+                  type="text"
+                  value={editForm.name || ''}
+                  onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                  className="bio-input"
+                />
+              </div>
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Poeng</label>
+                <input
+                  type="number"
+                  value={editForm.points || 0}
+                  onChange={e => setEditForm({ ...editForm, points: parseInt(e.target.value) || 0 })}
+                  className="bio-input"
+                />
+              </div>
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Rolle</label>
+                <select
+                  value={editForm.role || 'student'}
+                  onChange={e => setEditForm({ ...editForm, role: e.target.value })}
+                  className="bio-input"
+                >
+                  <option value="student">Elev</option>
+                  <option value="teacher">Lærer</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <button onClick={handleSaveUser} className="btn-primary w-full flex items-center justify-center gap-2 py-4 mt-4">
+                <Check size={16} /> Lagre endringer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Class Modal */}
+      {editingClass && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="bio-card p-8 w-full max-w-md animate-slide-up">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display font-700 text-white text-xl">Rediger klasse</h2>
+              <button onClick={() => setEditingClass(null)} className="text-slate-500 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Navn</label>
+                <input
+                  type="text"
+                  value={editForm.name || ''}
+                  onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                  className="bio-input"
+                />
+              </div>
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Antall elever</label>
+                <input
+                  type="number"
+                  value={editForm.studentCount || 0}
+                  onChange={e => setEditForm({ ...editForm, studentCount: parseInt(e.target.value) || 0 })}
+                  className="bio-input"
+                />
+              </div>
+              <button onClick={handleSaveClass} className="btn-primary w-full flex items-center justify-center gap-2 py-4 mt-4">
+                <Check size={16} /> Lagre endringer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSchoolModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="bio-card p-8 w-full max-w-md animate-slide-up">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display font-700 text-white text-xl">Ny skole</h2>
+              <button onClick={() => setShowSchoolModal(false)} className="text-slate-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Skolenavn</label>
+                <input
+                  type="text"
+                  value={newSchoolName}
+                  onChange={e => setNewSchoolName(e.target.value)}
+                  placeholder="F.eks. Eberg Ungdomsskole"
+                  className="bio-input"
+                  autoFocus
+                />
+              </div>
+              <button onClick={handleCreateSchool} disabled={creatingSchool} className="btn-primary w-full flex items-center justify-center gap-2 py-4">
+                {creatingSchool ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={16} /> Opprett skole</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGroupModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="bio-card p-8 w-full max-w-md animate-slide-up">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display font-700 text-white text-xl">Ny gruppe</h2>
+              <button onClick={() => setShowGroupModal(false)} className="text-slate-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Gruppenavn</label>
+                <input
+                  type="text"
+                  value={newGroupName}
+                  onChange={e => setNewGroupName(e.target.value)}
+                  placeholder="F.eks. 9. trinn"
+                  className="bio-input"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-slate-300 text-sm font-body font-500 block mb-2">Skole</label>
+                <select
+                  value={newGroupSchool}
+                  onChange={e => setNewGroupSchool(e.target.value)}
+                  className="bio-input"
+                >
+                  <option value="">Velg skole</option>
+                  {schools.map(school => (
+                    <option key={school.id} value={school.id}>{school.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button onClick={handleCreateGroup} disabled={creatingGroup || !newGroupSchool} className="btn-primary w-full flex items-center justify-center gap-2 py-4">
+                {creatingGroup ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={16} /> Opprett gruppe</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Layout>
+  );
+}

@@ -6,7 +6,7 @@ import { logoutUser } from '../../firebase/auth';
 import toast from 'react-hot-toast';
 import {
   LayoutDashboard, Leaf, Trophy, Brain, BarChart3,
-  Camera, Users, LogOut, Settings, ChevronRight, Zap
+  Camera, Users, LogOut, Shield, Zap
 } from 'lucide-react';
 
 const studentNav = [
@@ -24,15 +24,42 @@ const teacherNav = [
   { href: '/dashboard/classes', icon: Users, label: 'Klasser' },
 ];
 
+const adminNav = [
+  { href: '/dashboard/admin', icon: Shield, label: 'Admin' },
+  { href: '/dashboard/student', icon: LayoutDashboard, label: 'Elev-visning' },
+  { href: '/dashboard/teacher', icon: LayoutDashboard, label: 'Lærer-visning' },
+  { href: '/leaderboard', icon: Trophy, label: 'Rangering' },
+  { href: '/stats', icon: BarChart3, label: 'Statistikk' },
+];
+
 export default function Layout({ children }) {
   const { userData } = useAuth();
   const router = useRouter();
-  const nav = userData?.role === 'teacher' ? teacherNav : studentNav;
+  
+  const getNav = () => {
+    if (userData?.role === 'admin') return adminNav;
+    if (userData?.role === 'teacher') return teacherNav;
+    return studentNav;
+  };
+  
+  const nav = getNav();
 
   const handleLogout = async () => {
     await logoutUser();
     toast.success('Logget ut!');
     router.push('/');
+  };
+
+  const getRoleLabel = () => {
+    if (userData?.role === 'admin') return 'Administrator';
+    if (userData?.role === 'teacher') return 'Lærer';
+    return 'Elev';
+  };
+
+  const getRoleColor = () => {
+    if (userData?.role === 'admin') return 'text-red-400';
+    if (userData?.role === 'teacher') return 'text-earth-400';
+    return 'text-bio-400';
   };
 
   return (
@@ -61,7 +88,7 @@ export default function Layout({ children }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-white text-sm font-display font-600 truncate">{userData.name}</div>
-                <div className="text-bio-400 text-xs capitalize">{userData.role === 'teacher' ? 'Lærer' : 'Elev'}</div>
+                <div className={`text-xs capitalize ${getRoleColor()}`}>{getRoleLabel()}</div>
               </div>
               {userData.role === 'student' && (
                 <div className="text-right">
@@ -88,7 +115,13 @@ export default function Layout({ children }) {
               >
                 <Icon size={18} className={isActive ? 'text-bio-400' : 'text-slate-500 group-hover:text-slate-300'} />
                 {label}
-                {isActive && <ChevronRight size={14} className="ml-auto text-bio-400" />}
+                {isActive && (
+                  <span className="ml-auto">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </span>
+                )}
               </Link>
             );
           })}
